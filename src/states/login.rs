@@ -80,7 +80,6 @@ pub fn process_login_success_packet(
     let _uuid = buffer.read_u128();
     let _name = buffer.read_sized_string();
     let _properties = buffer.read_var_u32();
-    let _strict_error_handeling = buffer.read_bool();
 
     bot.state = ProtocolState::Config;
 
