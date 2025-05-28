@@ -1,33 +1,27 @@
 use crate::packet_utils::Buf;
 use crate::{Bot, Compression};
 
-/// Cookie Request (play)
-pub fn process_cookie_request_packet(
-    buffer: &mut Buf,
-    bot: &mut Bot,
-    compression: &mut Compression,
-) {
-    let identifier = buffer.read_sized_string();
-    bot.send_packet(write_cookie_response(identifier), compression);
-}
-
 /// Clientbound Keep Alive (play)
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Clientbound_Keep_Alive_(play)
 pub fn process_keep_alive_packet(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compression) {
     bot.send_packet(write_keep_alive_packet(buffer.read_u64()), compression);
 }
 
 /// Disconnect (login/config/play)
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Disconnect_(login)
 pub fn process_kick(buffer: &mut Buf, bot: &mut Bot, _compression: &mut Compression) {
     println!("bot was kicked for \"{}\"", buffer.read_sized_string());
     bot.kicked = true;
 }
 
 /// Login (play)
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Login_(play)
 pub fn process_join_game(buffer: &mut Buf, bot: &mut Bot, _compression: &mut Compression) {
     bot.entity_id = buffer.read_u32();
 }
 
 /// Synchronize Player Position
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Synchronize_Player_Position
 pub fn process_teleport(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compression) {
     let x = buffer.read_f64();
     let y = buffer.read_f64();
