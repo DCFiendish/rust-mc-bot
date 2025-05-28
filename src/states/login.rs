@@ -61,7 +61,7 @@ pub fn write_cookie_response(identifier: &str) -> Buf {
 }
 
 //s2c
-
+//https://minecraft.wiki/w/Java_Edition_protocol/Packets#Encryption_Request
 pub fn process_encryption_request_packet(
     _buffer: &mut Buf,
     bot: &mut Bot,
@@ -72,6 +72,7 @@ pub fn process_encryption_request_packet(
 }
 
 /// Login Success
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Login_Success
 pub fn process_login_success_packet(
     buffer: &mut Buf,
     bot: &mut Bot,
@@ -88,6 +89,7 @@ pub fn process_login_success_packet(
 }
 
 /// Set Compression
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Compression
 pub fn process_set_compression_packet(
     buf: &mut Buf,
     bot: &mut Bot,
@@ -96,11 +98,13 @@ pub fn process_set_compression_packet(
     bot.compression_threshold = buf.read_var_u32().0 as i32;
 }
 
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Login_Plugin_Request
 pub fn process_plugin_message_request(buf: &mut Buf, bot: &mut Bot, compression: &mut Compression) {
     let identifier = buf.read_var_u32().0;
     bot.send_packet(write_plugin_message_response(identifier), compression);
 }
 
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Cookie_Request_(login)
 pub fn process_cookie_request_packet(buf: &mut Buf, bot: &mut Bot, compression: &mut Compression) {
     let identifier = buf.read_sized_string();
     bot.send_packet(write_cookie_response(identifier), compression);
