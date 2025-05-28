@@ -133,7 +133,7 @@ pub fn write_tele_confirm(id: u32) -> Buf {
 pub fn write_keep_alive_packet(id: u64) -> Buf {
     // ClientKeepAlivePacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x18);
+    buf.write_packet_id(0x1a);
 
     buf.write_u64(id);
 
