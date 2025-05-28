@@ -48,22 +48,12 @@ pub fn process_teleport(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compr
     bot.teleported = true;
 }
 
-/// Cookie Response (play)
-pub fn write_cookie_response(identifier: &str) -> Buf {
-    let mut buf = Buf::new();
-    buf.write_packet_id(0x11);
-
-    buf.write_sized_str(identifier);
-    buf.write_bool(false);
-
-    buf
-}
-
 /// Chat Message
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Chat_Message
 pub fn write_chat_message(message: &str) -> Buf {
     // ClientChatMessagePacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x06);
+    buf.write_packet_id(0x07);
 
     buf.write_sized_str(message);
 
@@ -73,26 +63,28 @@ pub fn write_chat_message(message: &str) -> Buf {
     buf.write_bool(false); // has signature
     buf.write_var_u32(0); // count
     buf.write_bytes(&[0; 3]); // bitset
+    buf.write_var_u32(0); // signature count
 
     buf
 }
 
 /// Swing Arm
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Swing_Arm
 pub fn write_animation(off_hand: bool) -> Buf {
     // ClientAnimationPacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x36);
-
+    buf.write_packet_id(0x3B);
     buf.write_var_u32(if off_hand { 1 } else { 0 });
 
     buf
 }
 
-/// Player Command
+/// Player Action (serverbound)
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Command
 pub fn write_entity_action(entity_id: u32, action_id: u32, jump_boost: u32) -> Buf {
     // ClientEntityActionPacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x25);
+    buf.write_packet_id(0x28);
 
     buf.write_var_u32(entity_id);
     buf.write_var_u32(action_id);
@@ -102,10 +94,11 @@ pub fn write_entity_action(entity_id: u32, action_id: u32, jump_boost: u32) -> B
 }
 
 /// Set Held Item (serverbound)
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Held_Item_(serverbound)
 pub fn write_held_slot(slot: u16) -> Buf {
     // ClientHeldItemChangePacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x2F);
+    buf.write_packet_id(0x33);
 
     buf.write_u16(slot);
 
@@ -113,6 +106,7 @@ pub fn write_held_slot(slot: u16) -> Buf {
 }
 
 /// Confirm Teleportation
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Confirm_Teleportation
 pub fn write_tele_confirm(id: u32) -> Buf {
     // ClientTeleportConfirmPacket
     let mut buf = Buf::new();
@@ -124,6 +118,7 @@ pub fn write_tele_confirm(id: u32) -> Buf {
 }
 
 /// Serverbound Keep Alive (play)
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Serverbound_Keep_Alive_(play)
 pub fn write_keep_alive_packet(id: u64) -> Buf {
     // ClientKeepAlivePacket
     let mut buf = Buf::new();
@@ -139,10 +134,11 @@ pub fn write_current_pos(bot: &Bot) -> Buf {
 }
 
 /// Set Player Position and Rotation
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Player_Position_and_Rotation
 pub fn write_pos(x: f64, y: f64, z: f64, yaw: f32, pitch: f32) -> Buf {
     // ClientPlayerPositionAndRotationPacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x1B);
+    buf.write_packet_id(0x1D);
 
     buf.write_f64(x);
     buf.write_f64(y);
