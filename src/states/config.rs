@@ -125,30 +125,30 @@ pub fn write_client_settings() -> Buf {
     let mut buf = Buf::new();
     buf.write_packet_id(0x00);
 
-    // locale 
+    // locale
     buf.write_sized_str("en_US");
-    
+
     // view distance
     buf.write_u8(VIEW_DISTANCE);
-    
+
     // chat mode
     buf.write_var_u32(0);
-    
+
     // chat colors
     buf.write_bool(true);
-    
+
     // skin flags
     buf.write_u8(0xFF);
-    
+
     // main hand
     buf.write_var_u32(1);
-    
+
     // enable text filtering
     buf.write_bool(false);
-    
+
     // allow server listing
     buf.write_bool(true);
-    
+
     // particle status
     buf.write_var_u32(0);
 

@@ -40,17 +40,15 @@ pub fn lookup_packet(state: ProtocolState, packet: u8) -> Option<PacketHandler> 
             _ => {}
         },
 
-        ProtocolState::Play => {
-            match packet {
-                0x15 => return Some(config::process_cookie_request_packet), // KEEP_ALIVE
-                0x26 => return Some(play::process_keep_alive_packet),     // KEEP_ALIVE
-                0x2B => return Some(play::process_join_game),             // JOIN_GAME
-                0x1C => return Some(play::process_kick),                  // DISCONNECT
-                0x41 => return Some(play::process_teleport), // PLAYER_POSITION_AND_LOOK
-                0x7A => return Some(config::process_transfer),
-                _ => {}
-            }
-        }
+        ProtocolState::Play => match packet {
+            0x15 => return Some(config::process_cookie_request_packet),
+            0x26 => return Some(play::process_keep_alive_packet),
+            0x2B => return Some(play::process_join_game),
+            0x1C => return Some(play::process_kick),
+            0x41 => return Some(play::process_teleport),
+            0x7A => return Some(config::process_transfer),
+            _ => {}
+        },
     }
     None
 }
