@@ -23,6 +23,7 @@ pub fn process_join_game(buffer: &mut Buf, bot: &mut Bot, _compression: &mut Com
 /// Synchronize Player Position
 /// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Synchronize_Player_Position
 pub fn process_teleport(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compression) {
+    let id = buffer.read_var_u32().0;
     let x = buffer.read_f64();
     let y = buffer.read_f64();
     let z = buffer.read_f64();
@@ -44,8 +45,9 @@ pub fn process_teleport(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compr
     } else {
         bot.z += z;
     }
-    bot.send_packet(write_tele_confirm(buffer.read_var_u32().0), compression);
+    bot.send_packet(write_tele_confirm(id), compression);
     bot.teleported = true;
+    println!("{x}, {y}, {z}");
 }
 
 /// Chat Message
@@ -53,7 +55,7 @@ pub fn process_teleport(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compr
 pub fn write_chat_message(message: &str) -> Buf {
     // ClientChatMessagePacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x07);
+    buf.write_packet_id(0x08);
 
     buf.write_sized_str(message);
 
@@ -73,7 +75,7 @@ pub fn write_chat_message(message: &str) -> Buf {
 pub fn write_animation(off_hand: bool) -> Buf {
     // ClientAnimationPacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x3B);
+    buf.write_packet_id(0x3C);
     buf.write_var_u32(if off_hand { 1 } else { 0 });
 
     buf
@@ -84,7 +86,7 @@ pub fn write_animation(off_hand: bool) -> Buf {
 pub fn write_entity_action(entity_id: u32, action_id: u32, jump_boost: u32) -> Buf {
     // ClientEntityActionPacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x28);
+    buf.write_packet_id(0x29);
 
     buf.write_var_u32(entity_id);
     buf.write_var_u32(action_id);
@@ -98,7 +100,7 @@ pub fn write_entity_action(entity_id: u32, action_id: u32, jump_boost: u32) -> B
 pub fn write_held_slot(slot: u16) -> Buf {
     // ClientHeldItemChangePacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x33);
+    buf.write_packet_id(0x34);
 
     buf.write_u16(slot);
 
@@ -122,7 +124,7 @@ pub fn write_tele_confirm(id: u32) -> Buf {
 pub fn write_keep_alive_packet(id: u64) -> Buf {
     // ClientKeepAlivePacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x1a);
+    buf.write_packet_id(0x1b);
 
     buf.write_u64(id);
 
@@ -138,7 +140,7 @@ pub fn write_current_pos(bot: &Bot) -> Buf {
 pub fn write_pos(x: f64, y: f64, z: f64, yaw: f32, pitch: f32) -> Buf {
     // ClientPlayerPositionAndRotationPacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x1D);
+    buf.write_packet_id(0x1E);
 
     buf.write_f64(x);
     buf.write_f64(y);
