@@ -21,8 +21,25 @@ pub fn process_kick(_buffer: &mut Buf, bot: &mut Bot, _compression: &mut Compres
 
 /// Login (play)
 /// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Login_(play)
-pub fn process_join_game(buffer: &mut Buf, bot: &mut Bot, _compression: &mut Compression) {
+pub fn process_join_game(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compression) {
     bot.entity_id = buffer.read_u32();
+
+    // Real clients send Player Loaded once their loading screen finishes; the server uses it to
+    // fire PlayerLoadedEvent (confirmed via decompiling PlayerLoadedListener.java, wire ID 0x2C
+    // in CLIENT_PLAY, confirmed via decompiling PacketVanilla -- ClientPlayerLoadedPacket is an
+    // empty record, no payload). This bot never renders anything, so there's nothing to wait on --
+    // send it immediately. Without it, server-side code that hooks PlayerLoadedEvent (e.g. this
+    // server's Resident.create()) never runs for bots, silently breaking anything gated on it.
+    bot.send_packet(write_player_loaded(), compression);
+}
+
+/// Player Loaded (serverbound)
+pub fn write_player_loaded() -> Buf {
+    // ClientPlayerLoadedPacket
+    let mut buf = Buf::new();
+    buf.write_packet_id(0x2C);
+
+    buf
 }
 
 /// Synchronize Player Position
