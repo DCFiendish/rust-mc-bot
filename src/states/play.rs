@@ -52,10 +52,16 @@ pub fn process_teleport(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compr
 
 /// Chat Message
 /// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Chat_Message
+///
+/// Packet IDs below were confirmed against the actual PLAY-state client packet registry of the
+/// exact Minestom build being tested (net.minestom.server.network.packet.PacketVanilla.CLIENT_PLAY),
+/// not assumed from upstream's default protocol version -- they had drifted from upstream's
+/// 0x08/0x3C/0x29/0x34/0x1b/0x1E for this build (0x09/0x3F/0x2A/0x35/0x1C/0x1F), and Minestom was
+/// silently no-oping the malformed packets rather than kicking, so this had gone unnoticed.
 pub fn write_chat_message(message: &str) -> Buf {
     // ClientChatMessagePacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x08);
+    buf.write_packet_id(0x09);
 
     buf.write_sized_str(message);
 
@@ -75,22 +81,42 @@ pub fn write_chat_message(message: &str) -> Buf {
 pub fn write_animation(off_hand: bool) -> Buf {
     // ClientAnimationPacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x3C);
+    buf.write_packet_id(0x3F);
     buf.write_var_u32(if off_hand { 1 } else { 0 });
 
     buf
 }
 
-/// Player Action (serverbound)
+/// Player Command (serverbound) -- sneak/sprint/etc, NOT digging (see write_player_action below,
+/// which is a different packet: ClientPlayerActionPacket).
 /// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Command
 pub fn write_entity_action(entity_id: u32, action_id: u32, jump_boost: u32) -> Buf {
     // ClientEntityActionPacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x29);
+    buf.write_packet_id(0x2A);
 
     buf.write_var_u32(entity_id);
     buf.write_var_u32(action_id);
     buf.write_var_u32(jump_boost);
+
+    buf
+}
+
+/// Player Action (serverbound) -- digging/breaking blocks.
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Action
+///
+/// status: 0=started digging, 1=cancelled digging, 2=finished digging (matches
+/// ClientPlayerActionPacket$Status's enum ordinal on the server).
+/// face: 0=bottom, 1=top, 2=north, 3=south, 4=west, 5=east (matches BlockFace's ordinal).
+pub fn write_player_action(status: u32, x: i32, y: i32, z: i32, face: u32, sequence: u32) -> Buf {
+    // ClientPlayerActionPacket
+    let mut buf = Buf::new();
+    buf.write_packet_id(0x29);
+
+    buf.write_var_u32(status);
+    buf.write_block_position(x, y, z);
+    buf.write_var_u32(face);
+    buf.write_var_u32(sequence);
 
     buf
 }
@@ -100,7 +126,7 @@ pub fn write_entity_action(entity_id: u32, action_id: u32, jump_boost: u32) -> B
 pub fn write_held_slot(slot: u16) -> Buf {
     // ClientHeldItemChangePacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x34);
+    buf.write_packet_id(0x35);
 
     buf.write_u16(slot);
 
@@ -124,7 +150,7 @@ pub fn write_tele_confirm(id: u32) -> Buf {
 pub fn write_keep_alive_packet(id: u64) -> Buf {
     // ClientKeepAlivePacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x1b);
+    buf.write_packet_id(0x1C);
 
     buf.write_u64(id);
 
@@ -140,7 +166,7 @@ pub fn write_current_pos(bot: &Bot) -> Buf {
 pub fn write_pos(x: f64, y: f64, z: f64, yaw: f32, pitch: f32) -> Buf {
     // ClientPlayerPositionAndRotationPacket
     let mut buf = Buf::new();
-    buf.write_packet_id(0x1E);
+    buf.write_packet_id(0x1F);
 
     buf.write_f64(x);
     buf.write_f64(y);

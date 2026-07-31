@@ -284,7 +284,7 @@ pub fn start_bots(count: u32, addrs: Address, name_offset: u32, cpus: u32) {
                 bot.send_packet(play::write_current_pos(bot), &mut compression);
 
                 if (tick_counter + bot.id) % action_tick == 0 {
-                    match rand::thread_rng().gen_range(0..=4u8) {
+                    match rand::thread_rng().gen_range(0..=5u8) {
                         0 => {
                             // Send chat
                             bot.send_packet(
@@ -327,6 +327,21 @@ pub fn start_bots(count: u32, addrs: Address, name_offset: u32, cpus: u32) {
                             // Held item
                             bot.send_packet(
                                 play::write_held_slot(rand::thread_rng().gen_range(0..9)),
+                                &mut compression,
+                            );
+                        }
+                        5 => {
+                            // Dig the block directly below the bot's feet -- started then
+                            // immediately finished, matching a simplified instant-break client.
+                            // blockFace=1 (TOP) since we're looking down at that block's top face.
+                            let (bx, by, bz) =
+                                (bot.x.floor() as i32, (bot.y.floor() as i32) - 1, bot.z.floor() as i32);
+                            bot.send_packet(
+                                play::write_player_action(0, bx, by, bz, 1, tick_counter),
+                                &mut compression,
+                            );
+                            bot.send_packet(
+                                play::write_player_action(2, bx, by, bz, 1, tick_counter),
                                 &mut compression,
                             );
                         }
