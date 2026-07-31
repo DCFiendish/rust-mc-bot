@@ -30,7 +30,10 @@ const MESSAGES: &[&str] = &["This is a chat message!", "Wow", "Server = on?"];
 
 #[cfg(unix)]
 const UDS_PREFIX: &str = "unix://";
-const PROTOCOL_VERSION: u32 = 772;
+// Bumped from 772 (1.21.8, upstream default) to 776 -- confirmed via decompiling the exact
+// Minestom build Morellia runs (net.minestom.server.listener.preplay.HandshakeListener,
+// `protocolVersion() == 776` check) rather than guessed.
+const PROTOCOL_VERSION: u32 = 776;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 

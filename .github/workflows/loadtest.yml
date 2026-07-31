@@ -1,0 +1,29 @@
+name: Load test
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Server address (host:port)"
+        required: true
+        default: "150.136.235.233:25567"
+      count:
+        description: "Number of bots"
+        required: true
+        default: "5"
+      duration_seconds:
+        description: "How long to keep bots connected before stopping"
+        required: true
+        default: "30"
+
+jobs:
+  loadtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - run: |
+          timeout --preserve-status "${{ inputs.duration_seconds }}" \
+            ./target/release/rust-mc-bot "${{ inputs.target }}" "${{ inputs.count }}" || \
+            echo "bot process ended (timeout or exit) with status $?"
