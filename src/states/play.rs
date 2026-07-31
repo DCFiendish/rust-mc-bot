@@ -1,5 +1,6 @@
 use crate::packet_utils::Buf;
 use crate::{Bot, Compression};
+use rand::Rng;
 
 /// Clientbound Keep Alive (play)
 /// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Clientbound_Keep_Alive_(play)
@@ -68,6 +69,19 @@ pub fn process_teleport(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compr
         bot.z += z;
     }
     bot.send_packet(write_tele_confirm(id), compression);
+
+    // The server spawns every bot at the same world coordinate, so a large swarm piles up on top
+    // of itself for the whole test -- entity tracking/visibility work scales with local density,
+    // not bot count, so a dense pile is a much heavier (and less representative) load than the
+    // same bot count spread across the map. Fan each bot out over a wide area once, right after
+    // its first teleport, instead of leaving it to the slow +/-0.5 random walk below.
+    if !bot.teleported {
+        let mut rng = rand::thread_rng();
+        bot.x += rng.gen_range(-150.0..150.0);
+        bot.z += rng.gen_range(-150.0..150.0);
+        bot.send_packet(write_current_pos(bot), compression);
+    }
+
     bot.teleported = true;
     println!("{x}, {y}, {z}");
 }
