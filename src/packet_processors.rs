@@ -37,16 +37,23 @@ pub fn lookup_packet(state: ProtocolState, packet: u8) -> Option<PacketHandler> 
             0x09 => return Some(config::process_resource_pack),
             0x0B => return Some(config::process_transfer),
             0x0E => return Some(config::process_known_packs),
+            0x13 => return Some(config::process_code_of_conduct),
             _ => {}
         },
 
+        // Re-confirmed by decompiling this exact server's minestom-2026.07.12-26.2.jar
+        // (net.minestom.server.network.packet.PacketVanilla.SERVER_PLAY) after discovering the
+        // previous table was wrong -- it silently misread PlayerChatMessagePacket as Teleport and
+        // InitializeWorldBorderPacket as JoinGame, so bot.teleported never became true and no
+        // flag ever got placed, and it was echoing ChangeGameStatePacket as KeepAlive while never
+        // answering the server's real KeepAlivePacket, causing a silent timeout kick.
         ProtocolState::Play => match packet {
             0x15 => return Some(config::process_cookie_request_packet),
-            0x26 => return Some(play::process_keep_alive_packet),
-            0x2B => return Some(play::process_join_game),
-            0x1C => return Some(play::process_kick),
-            0x41 => return Some(play::process_teleport),
-            0x7A => return Some(config::process_transfer),
+            0x20 => return Some(play::process_kick), // DisconnectPacket
+            0x2C => return Some(play::process_keep_alive_packet), // KeepAlivePacket
+            0x31 => return Some(play::process_join_game), // JoinGamePacket
+            0x48 => return Some(play::process_teleport), // PlayerPositionAndLookPacket
+            0x81 => return Some(config::process_transfer), // TransferPacket
             _ => {}
         },
     }

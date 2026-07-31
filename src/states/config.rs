@@ -32,11 +32,19 @@ pub fn process_ping(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compressi
 
 /// Add Resource Pack (configuration)
 /// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Add_Resource_Pack_(configuration)
+///
+/// Confirmed via decompiling Adventure's `ResourcePackStatus` (the enum Minestom uses server-side):
+/// ACCEPTED is `intermediate=true`, and Minestom's `Player.onResourcePackStatus` only completes the
+/// per-player resource-pack future -- which `ConnectionManager.doConfiguration()` blocks on with an
+/// un-timed-out `.join()` before ever sending Finish Configuration -- once a *non-intermediate*
+/// status arrives. Sending only ACCEPTED (as this used to) leaves that future pending forever, so
+/// the whole connection silently hangs in Configuration state. Real clients always follow ACCEPTED
+/// with a terminal status once the pack finishes loading; since this bot never renders anything,
+/// immediately report SUCCESSFULLY_LOADED (wire status 0, intermediate=false) right after.
 pub fn process_resource_pack(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compression) {
-    bot.send_packet(
-        write_acknowledge_resource_pack(buffer.read_u128()),
-        compression,
-    );
+    let id = buffer.read_u128();
+    bot.send_packet(write_resource_pack_response(id, 3), compression); // Accepted (intermediate)
+    bot.send_packet(write_resource_pack_response(id, 0), compression); // Successfully loaded (terminal)
 }
 
 /// Transfer (configuration)
@@ -54,6 +62,17 @@ pub fn process_transfer(buffer: &mut Buf, bot: &mut Bot, _compression: &mut Comp
 /// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Clientbound_Known_Packs
 pub fn process_known_packs(_buffer: &mut Buf, bot: &mut Bot, compression: &mut Compression) {
     bot.send_packet(write_known_packets(), compression);
+}
+
+/// Code of Conduct (configuration)
+///
+/// Not part of the classic vanilla protocol -- confirmed via `javap` against this server's
+/// exact Minestom build (net.minestom.server.network.packet.server.configuration.CodeOfConductPacket,
+/// registry ID 0x13). The server withholds Finish Configuration until this is acknowledged, so a
+/// bot that silently ignores it (the framing loop skips unrecognized packets by their declared
+/// length with no error) stalls forever after the registry-data burst and never reaches Play.
+pub fn process_code_of_conduct(_buffer: &mut Buf, bot: &mut Bot, compression: &mut Compression) {
+    bot.send_packet(write_accept_code_of_conduct(), compression);
 }
 
 pub fn write_cookie_response(identifier: &str) -> Buf {
@@ -97,13 +116,16 @@ pub fn write_pong(id: u32) -> Buf {
 }
 
 /// Resource Pack Response (configuration)
-pub fn write_acknowledge_resource_pack(id: u128) -> Buf {
-    // ClientKeepAlivePacket
+///
+/// `status` is the wire value from Adventure's ResourcePackStatus (confirmed via decompiling
+/// Minestom's ClientResourcePackStatusPacket): 0=SUCCESSFULLY_LOADED, 1=DECLINED,
+/// 2=FAILED_DOWNLOAD, 3=ACCEPTED, 4=DOWNLOADED, 5=INVALID_URL, 6=FAILED_RELOAD, 7=DISCARDED.
+pub fn write_resource_pack_response(id: u128, status: u32) -> Buf {
     let mut buf = Buf::new();
     buf.write_packet_id(0x06);
 
     buf.write_u128(id);
-    buf.write_var_u32(3); // Accepted
+    buf.write_var_u32(status);
 
     buf
 }
@@ -113,6 +135,14 @@ pub fn write_known_packets() -> Buf {
     buf.write_packet_id(0x07);
 
     buf.write_var_u32(0);
+
+    buf
+}
+
+/// Accept Code of Conduct (configuration) -- empty payload, just the packet ID.
+pub fn write_accept_code_of_conduct() -> Buf {
+    let mut buf = Buf::new();
+    buf.write_packet_id(0x09);
 
     buf
 }

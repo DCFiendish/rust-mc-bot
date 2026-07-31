@@ -9,8 +9,13 @@ pub fn process_keep_alive_packet(buffer: &mut Buf, bot: &mut Bot, compression: &
 
 /// Disconnect (login/config/play)
 /// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Disconnect_(login)
-pub fn process_kick(buffer: &mut Buf, bot: &mut Bot, _compression: &mut Compression) {
-    println!("bot was kicked for \"{}\"", buffer.read_sized_string());
+///
+/// The message field is an NBT-encoded Component (confirmed via decompiling
+/// DisconnectPacket.java), not a sized string -- don't attempt to parse it as one, that would
+/// misread the NBT and risk panicking on a bogus length. The framing loop already advances past
+/// this packet by its declared length regardless of what we read here, so just flag the kick.
+pub fn process_kick(_buffer: &mut Buf, bot: &mut Bot, _compression: &mut Compression) {
+    println!("bot \"{}\" was kicked (see server log/NBT reason, not decoded here)", bot.name);
     bot.kicked = true;
 }
 
