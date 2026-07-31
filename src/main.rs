@@ -28,6 +28,24 @@ const AVG_JOINS_PER_TICK: f64 = 5.0;
 const SHOULD_MOVE: bool = true;
 const MESSAGES: &[&str] = &["This is a chat message!", "Wow", "Server = on?"];
 
+// War-flag load test (nodes' FlagWar system). Only exercised against Morellia's two hardcoded
+// test territories -- see server/world.json and server/src/.../LoadTestBots.kt, which auto-
+// enlists any "Bot_<n>" player into Testville (even n) or Secondtown (odd n) by name suffix and
+// hands them a fence. Bots attack the OTHER faction's territory, so this must stay in sync with
+// LoadTestBots.kt's parity rule. Ground is flat stone up to Y=59 (server/utils' flatTestGenerator
+// fillHeight(0, 60, ...)), so Y=59 is always solid ground and the flag lands at Y=60 with clear
+// sky above -- both required by FlagWar.beginAttack's placement checks.
+//
+// Only ATTACK_FRACTION of bots actually attack (one flag each, once) so this validates the
+// concurrent-attack path (beacon render, minimap war-broadcast, war autosave) without every bot
+// piling onto the same handful of chunks -- nodes only allows one active attack per chunk, and
+// there are just 4 chunks per territory in this test world, so more attackers than that mostly
+// hits ErrorAlreadyUnderAttack rather than adding real concurrent load.
+const ATTACK_FRACTION: u32 = 4; // ~25% of bots attack
+const FLAG_GROUND_Y: i32 = 59;
+const TESTVILLE_CHUNK_CENTERS: [(i32, i32); 4] = [(8, 8), (24, 8), (8, 24), (24, 24)];
+const SECONDTOWN_CHUNK_CENTERS: [(i32, i32); 4] = [(88, 8), (104, 8), (88, 24), (104, 24)];
+
 #[cfg(unix)]
 const UDS_PREFIX: &str = "unix://";
 // Bumped from 772 (1.21.8, upstream default) to 776 -- confirmed via decompiling the exact
@@ -140,6 +158,7 @@ pub struct Bot {
     pub state: ProtocolState,
     pub kicked: bool,
     pub teleported: bool,
+    pub attacked: bool,
     pub x: f64,
     pub y: f64,
     pub z: f64,
@@ -221,6 +240,7 @@ pub fn start_bots(count: u32, addrs: Address, name_offset: u32, cpus: u32) {
                     state: ProtocolState::Login,
                     kicked: false,
                     teleported: false,
+                    attacked: false,
                     x: 0.0,
                     y: 0.0,
                     z: 0.0,
@@ -278,6 +298,42 @@ pub fn start_bots(count: u32, addrs: Address, name_offset: u32, cpus: u32) {
         let mut to_remove = Vec::new();
 
         for bot in map.values_mut() {
+            if bot.teleported && !bot.attacked && bot.id % ATTACK_FRACTION == 0 {
+                bot.attacked = true;
+
+                // Even bot id -> Testville faction, attacks Secondtown; odd -> Secondtown,
+                // attacks Testville. Must match LoadTestBots.kt's parity rule server-side.
+                let targets = if bot.id % 2 == 0 {
+                    &SECONDTOWN_CHUNK_CENTERS
+                } else {
+                    &TESTVILLE_CHUNK_CENTERS
+                };
+                let (tx, tz) = targets[(bot.id as usize / 2) % targets.len()];
+
+                bot.send_packet(play::write_held_slot(0), &mut compression);
+                bot.send_packet(
+                    play::write_block_place(
+                        0,
+                        tx,
+                        FLAG_GROUND_Y,
+                        tz,
+                        1, // TOP face of the ground block
+                        0.5,
+                        1.0,
+                        0.5,
+                        tick_counter,
+                    ),
+                    &mut compression,
+                );
+                println!(
+                    "bot \"{}\" placing war flag at ({}, {}, {})",
+                    bot.name,
+                    tx,
+                    FLAG_GROUND_Y + 1,
+                    tz
+                );
+            }
+
             if SHOULD_MOVE && bot.teleported {
                 bot.x += rand::random::<f64>() * 1.0 - 0.5;
                 bot.z += rand::random::<f64>() * 1.0 - 0.5;

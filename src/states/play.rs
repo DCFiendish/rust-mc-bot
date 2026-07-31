@@ -121,6 +121,45 @@ pub fn write_player_action(status: u32, x: i32, y: i32, z: i32, face: u32, seque
     buf
 }
 
+/// Player Action (serverbound) -- use item on block / place block.
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Use_Item_On
+///
+/// Confirmed against the same decompiled PacketVanilla registry as the header comment above:
+/// ClientPlayerBlockPlacementPacket is ID 0x42 on this build.
+///
+/// hand: 0=main hand, 1=off hand (PlayerHand ordinal). face: 0=bottom, 1=top, 2=north, 3=south,
+/// 4=west, 5=east (BlockFace ordinal, same as write_player_action). Places whatever item is
+/// currently in the given hand's selected slot against the face of the block at (x,y,z) --
+/// the block type placed is NOT part of this packet, it's determined server-side from the
+/// player's held item.
+pub fn write_block_place(
+    hand: u32,
+    x: i32,
+    y: i32,
+    z: i32,
+    face: u32,
+    cursor_x: f32,
+    cursor_y: f32,
+    cursor_z: f32,
+    sequence: u32,
+) -> Buf {
+    // ClientPlayerBlockPlacementPacket
+    let mut buf = Buf::new();
+    buf.write_packet_id(0x42);
+
+    buf.write_var_u32(hand);
+    buf.write_block_position(x, y, z);
+    buf.write_var_u32(face);
+    buf.write_f32(cursor_x);
+    buf.write_f32(cursor_y);
+    buf.write_f32(cursor_z);
+    buf.write_bool(false); // insideBlock
+    buf.write_bool(false); // hitWorldBorder
+    buf.write_var_u32(sequence);
+
+    buf
+}
+
 /// Set Held Item (serverbound)
 /// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Held_Item_(serverbound)
 pub fn write_held_slot(slot: u16) -> Buf {
