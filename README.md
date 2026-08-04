@@ -33,8 +33,12 @@ Minestom build under test) rather than assumed from the upstream protocol versio
   per-player state that's only initialized in response to that packet was never created for any
   bot, breaking anything gated on it.
 - **Added real interaction load**, not just idle connections: periodic block-breaking, and
-  block-placement wired to a subset of bots to exercise attack/contested-territory server logic
-  under concurrent load.
+  block-placement wired to a subset of bots targeting fixed test-territory coordinates, intended
+  to exercise a contested-territory attack path under concurrent load. The attack itself has a
+  server-side precondition (attacking chunk must border a chunk already owned by the attacker's
+  own faction) that the current hardcoded coordinates don't reliably satisfy against every test
+  world, so this exercises the write path but isn't yet confirmed to trigger the attack logic
+  end-to-end — see Known Issues.
 - **Fixed spawn clustering.** Bots previously piled up at a single shared coordinate; entity
   tracking cost scales with local density, not raw count, so a tight pile is a much heavier (and
   much less representative) load than the same bot count spread across the map. Bots now get a
@@ -80,6 +84,13 @@ Using `localhost` as the IP on machines with IPv6 may cause the bots to fail to 
 `127.0.0.1` instead.
 
 The bots do not support online mode, to prevent abuse and improve performance.
+
+The war-flag attack test targets hardcoded chunk coordinates for two factions. The target server's
+attack rule requires the target chunk to border a chunk already owned by the attacker's faction —
+the current coordinates aren't guaranteed to satisfy that against a given test world's actual
+territory layout, so the attack can silently no-op even though the connection and block-placement
+packet succeed. Needs each faction's chunk set placed to actually border the opposing faction's
+territory, with one distinct target chunk per attacking bot.
 
 ## Disclaimer
 
