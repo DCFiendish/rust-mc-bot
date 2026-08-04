@@ -86,6 +86,38 @@ pub fn process_teleport(buffer: &mut Buf, bot: &mut Bot, compression: &mut Compr
     println!("{x}, {y}, {z}");
 }
 
+/// System Chat Message (clientbound) -- TEMPORARY war-flag-verification probe.
+/// https://minecraft.wiki/w/Java_Edition_protocol/Packets#System_Chat_Message
+///
+/// The `message` field is an NBT-encoded Component (confirmed by decompiling
+/// SystemChatPacket.class -- same NBT-Component encoding as DisconnectPacket, see process_kick
+/// above), not a sized string, so it isn't parsed properly here. This is a throwaway diagnostic
+/// to read the server's flag-attack success ("is attacking...") or failure (Message.error(...))
+/// text back from a real connected bot -- good enough to just scan the raw payload bytes for
+/// printable-ASCII runs rather than write a real NBT/Component decoder for a handler that gets
+/// deleted once verification is done.
+pub fn process_system_chat(buffer: &mut Buf, bot: &mut Bot, _compression: &mut Compression) {
+    let remaining = buffer.get_writer_index() - buffer.get_reader_index();
+    let bytes = buffer.read_bytes(remaining);
+
+    let mut current = String::new();
+    let mut runs: Vec<String> = Vec::new();
+    for &b in bytes {
+        if b.is_ascii_graphic() || b == b' ' {
+            current.push(b as char);
+        } else {
+            if current.len() >= 3 {
+                runs.push(current.clone());
+            }
+            current.clear();
+        }
+    }
+    if current.len() >= 3 {
+        runs.push(current);
+    }
+    println!("[SystemChat -> {}] {:?}", bot.name, runs);
+}
+
 /// Chat Message
 /// https://minecraft.wiki/w/Java_Edition_protocol/Packets#Chat_Message
 ///

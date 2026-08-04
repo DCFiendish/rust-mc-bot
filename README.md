@@ -33,12 +33,42 @@ Minestom build under test) rather than assumed from the upstream protocol versio
   per-player state that's only initialized in response to that packet was never created for any
   bot, breaking anything gated on it.
 - **Added real interaction load**, not just idle connections: periodic block-breaking, and
-  block-placement wired to a subset of bots targeting fixed test-territory coordinates, intended
-  to exercise a contested-territory attack path under concurrent load. The attack itself has a
-  server-side precondition (attacking chunk must border a chunk already owned by the attacker's
-  own faction) that the current hardcoded coordinates don't reliably satisfy against every test
-  world, so this exercises the write path but isn't yet confirmed to trigger the attack logic
-  end-to-end — see Known Issues.
+  block-placement wired to a subset of bots (`ATTACK_FRACTION`) targeting real border-chunk
+  coordinates, to exercise the target server's contested-territory (war-flag) attack path under
+  concurrent load. This required chasing down four separate, entirely independent bugs before a
+  single attack packet actually produced a real server-side attack — each one silently swallowed
+  the attempt with no visible error, so the only way to tell them apart was fixing one at a time
+  and re-verifying against the server's real response packet (see "Confirming the fix actually
+  worked" below), not by reading logs:
+  1. **Wrong target coordinates.** The original test territories didn't border each other and, for
+     a while, didn't exist in the target server's real world at all. Fixed by switching to two
+     real, adjacent, currently-unclaimed production territories and computing their 7 real
+     shared-border chunk pairs directly from the live world data (not assumed) — see
+     `TOWN_A_ATTACK_TARGETS` / `TOWN_B_ATTACK_TARGETS` in `src/main.rs`.
+  2. **Repeated targets under concurrency.** Attacking bots picked a target via
+     `bot.id/2` stepped by `ATTACK_FRACTION`, which could hand the same chunk to multiple
+     concurrent attackers well before every entry in the target table had been used (the server
+     only allows one active attack per chunk, so this silently capped real concurrent load far
+     below what the bot count implied). Fixed with `NEXT_TOWN_A_TARGET`/`NEXT_TOWN_B_TARGET`,
+     monotonic atomic counters that hand out a genuinely distinct target per attacker, wrapping
+     only past 7 concurrent attackers per side.
+  3. **`bot.id` was not actually unique.** `start_bots` spawns one thread per CPU, and `id:` was set
+     from the *per-thread-local* loop variable rather than a globally unique number — with more
+     CPUs than bots-per-thread, almost every bot's local index came out `0`, silently breaking the
+     `bot.id % N` parity/fraction checks this entire feature depends on. Fixed by deriving `id`
+     from `name_offset + bot` instead.
+  4. **The attacking bot's own hitbox blocked its own placement.** Bots used to move to stand
+     *exactly* at the block they were about to place (`(tx+0.5, ground_y+1, tz+0.5)` — the same
+     cell as the new flag block). Confirmed by decompiling the target server's exact Minestom
+     build: `BlockPlacementListener` calls `CollisionUtils.canPlaceBlockAt` *before* the server
+     ever constructs or dispatches `PlayerBlockPlaceEvent`, and when the returned colliding entity
+     is the placing player itself, the server just acknowledges the packet and returns — no event,
+     no error, no chat message, nothing observable at all. Fixed by standing 1 block off the
+     target column instead of on top of it (see the comment at the placement call site in
+     `main.rs`).
+
+  Bugs 1-3 also required matching fixes server-side (real territory/nation/war-state setup) —
+  documented in that project, not here.
 - **Fixed spawn clustering.** Bots previously piled up at a single shared coordinate; entity
   tracking cost scales with local density, not raw count, so a tight pile is a much heavier (and
   much less representative) load than the same bot count spread across the map. Bots now get a
@@ -78,19 +108,37 @@ The `Load test` workflow (`workflow_dispatch`) builds and runs the bot swarm aga
 configurable `target`, `count`, and `duration_seconds` directly from the Actions tab — useful for
 running a load test without a dedicated machine.
 
+## Confirming the war-flag attack actually worked
+
+Every bug above produced the exact same symptom: the bot connects fine, sends a structurally valid
+block-placement packet, and then — nothing. No kick, no console error, no visible difference at
+all between "the attack succeeded" and "the attack silently failed a precondition." Two channels
+that seem like they should tell you which one happened, don't:
+
+- **The target server's console log.** Its `[War]`/error broadcasts go through the server's own
+  chat/messaging API, which routes through the network layer to connected clients — never through
+  `println` to the console. A clean console proves nothing either way.
+- **Territory/town save files after the fact.** A border-chunk capture (as opposed to a
+  core-chunk capture) only ever sets in-memory, runtime-only state — nothing about it is written
+  to the on-disk world/town data at all. An unclaimed-looking chunk in a save file is consistent
+  with both "never attacked" and "attacked and captured."
+
+The only channel that can actually distinguish success from failure is the real chat packet the
+server sends back to the connecting bot: a success message (`"... is attacking ..."`) or a specific
+error reason, both delivered as a `SystemChatPacket` (packet ID confirmed at runtime against the
+target server's exact Minestom build, not assumed — see the target project's own notes on how).
+`states/play.rs` includes a handler for it that does a crude printable-ASCII scan of the packet's
+payload bytes and prints whatever text it finds — not a real NBT/Component decoder, just enough to
+read the message text back, which is all this needed. Reading that text is what actually caught bug
+4 above, after bugs 1-3 were already fixed and the attack was *still* silently failing — every other
+signal available said everything was fine.
+
 ## Known Issues
 
 Using `localhost` as the IP on machines with IPv6 may cause the bots to fail to connect. Use
 `127.0.0.1` instead.
 
 The bots do not support online mode, to prevent abuse and improve performance.
-
-The war-flag attack test targets hardcoded chunk coordinates for two factions. The target server's
-attack rule requires the target chunk to border a chunk already owned by the attacker's faction —
-the current coordinates aren't guaranteed to satisfy that against a given test world's actual
-territory layout, so the attack can silently no-op even though the connection and block-placement
-packet succeed. Needs each faction's chunk set placed to actually border the opposing faction's
-territory, with one distinct target chunk per attacking bot.
 
 ## Disclaimer
 

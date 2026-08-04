@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::io;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use std::{env, net::ToSocketAddrs};
 use uuid::Uuid;
@@ -28,23 +29,66 @@ const AVG_JOINS_PER_TICK: f64 = 5.0;
 const SHOULD_MOVE: bool = true;
 const MESSAGES: &[&str] = &["This is a chat message!", "Wow", "Server = on?"];
 
-// War-flag load test (nodes' FlagWar system). Only exercised against Morellia's two hardcoded
-// test territories -- see server/world.json and server/src/.../LoadTestBots.kt, which auto-
-// enlists any "Bot_<n>" player into Testville (even n) or Secondtown (odd n) by name suffix and
-// hands them a fence. Bots attack the OTHER faction's territory, so this must stay in sync with
-// LoadTestBots.kt's parity rule. Ground is flat stone up to Y=59 (server/utils' flatTestGenerator
-// fillHeight(0, 60, ...)), so Y=59 is always solid ground and the flag lands at Y=60 with clear
-// sky above -- both required by FlagWar.beginAttack's placement checks.
+// War-flag load test (nodes' FlagWar system).
 //
-// Only ATTACK_FRACTION of bots actually attack (one flag each, once) so this validates the
-// concurrent-attack path (beacon render, minimap war-broadcast, war autosave) without every bot
-// piling onto the same handful of chunks -- nodes only allows one active attack per chunk, and
-// there are just 4 chunks per territory in this test world, so more attackers than that mostly
-// hits ErrorAlreadyUnderAttack rather than adding real concurrent load.
+// Earlier versions of this test targeted a hardcoded flat test area (chunks near the origin,
+// fixed Y=59 "ground") that doesn't correspond to anything in this server's actual world: the
+// live server runs a real, non-flat terrain generator, and nothing ever created the two towns or
+// claimed a territory for them, so every attack silently failed FlagWar.beginAttack's very first
+// check (target territory has no owner) with no visible error -- the bot connected fine and sent
+// a structurally valid place-block packet, so this looked like it was working.
+//
+// Fixed by targeting two real, adjacent, currently-unclaimed production territories (440/275) --
+// see server/src/.../LoadTestBots.kt, which creates TownA (home: territory 440) and TownB (home:
+// territory 275) on server boot and auto-enlists any "Bot_<n>" player into one of them by
+// name-suffix parity. Bots attack the OTHER faction's home territory, so this table and
+// LoadTestBots.kt's parity rule/territory IDs must stay in sync. If either territory gets claimed
+// by a real town before launch, both sides need to move to a different unclaimed adjacent pair.
+//
+// Coordinates and ground elevation below were read directly off the live EuropeTerrain generator
+// (server/src/.../WarTestProbe.kt), not assumed -- confirmed real solid ground (not a tree
+// canopy or flower) at each point before it went in this table.
+//
+// Each entry is a distinct chunk that genuinely borders the opposing faction's territory (7 real
+// shared-border chunk pairs exist between 440/275 -- confirmed by walking both territories' chunk
+// lists in the live world.json, not guessed). nodes only allows one active attack per chunk, so
+// attacking bots are assigned a target from this list one at a time via ATTACK_TARGET_INDEX_A/B
+// below -- with 7 targets per side, up to 7 concurrent attackers per faction (14 total) get a
+// genuinely distinct chunk; beyond that, indices wrap and further attackers mostly hit
+// ErrorAlreadyUnderAttack instead of adding real concurrent load. Bump ATTACK_FRACTION down (or
+// find a longer shared border) if a test needs more concurrent attackers than that.
 const ATTACK_FRACTION: u32 = 4; // ~25% of bots attack
-const FLAG_GROUND_Y: i32 = 59;
-const TESTVILLE_CHUNK_CENTERS: [(i32, i32); 4] = [(8, 8), (24, 8), (8, 24), (24, 24)];
-const SECONDTOWN_CHUNK_CENTERS: [(i32, i32); 4] = [(88, 8), (104, 8), (88, 24), (104, 24)];
+
+// (chunk_x, chunk_z, ground_y) -- ground_y was the real top solid-block Y at that chunk's center
+// under EuropeTerrain; temporarily flattened to 64 (StoneFlatTerrain.SURFACE_Y in
+// server/src/.../StoneFlatTerrain.kt) while the server runs the stone-superflat test world instead
+// of EuropeTerrain, so every target sits on identical, predictable ground. Restore the real
+// per-chunk values above (still correct for EuropeTerrain) when switching Main.kt back.
+const TOWN_A_ATTACK_TARGETS: [(i32, i32, i32); 7] = [
+    (142, 128, 64),
+    (143, 123, 64),
+    (143, 124, 64),
+    (143, 125, 64),
+    (143, 126, 64),
+    (143, 127, 64),
+    (144, 122, 64),
+];
+const TOWN_B_ATTACK_TARGETS: [(i32, i32, i32); 7] = [
+    (143, 128, 64),
+    (144, 123, 64),
+    (144, 124, 64),
+    (144, 125, 64),
+    (144, 126, 64),
+    (144, 127, 64),
+    (145, 122, 64),
+];
+
+// Monotonic per-faction counters, not derived from bot.id -- bot.id/2 stepped by ATTACK_FRACTION
+// within a parity group, which didn't hand out a genuinely distinct target to each attacker (it
+// could repeat a target well before every slot in TOWN_A/B_ATTACK_TARGETS had been used). These
+// guarantee attacker N within a faction gets target N, wrapping only past 7 concurrent attackers.
+static NEXT_TOWN_A_TARGET: AtomicUsize = AtomicUsize::new(0);
+static NEXT_TOWN_B_TARGET: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(unix)]
 const UDS_PREFIX: &str = "unix://";
@@ -234,7 +278,17 @@ pub fn start_bots(count: u32, addrs: Address, name_offset: u32, cpus: u32) {
                     token,
                     stream: addrs.connect(),
                     name,
-                    id: bot,
+                    // Must be the globally unique bot number (matching the "Bot_<n>" name suffix
+                    // LoadTestBots.kt parses server-side), not the per-thread-local loop index --
+                    // start_bots() runs once per worker thread with a slice of the total count, so
+                    // the loop variable `bot` resets toward 0 in every thread. Using it directly
+                    // here desynced both the even/odd faction split (bot.id % 2, must match
+                    // LoadTestBots.kt's suffix % 2) and ATTACK_FRACTION gating (bot.id %
+                    // ATTACK_FRACTION) across threads -- with enough worker threads relative to
+                    // bot count, most threads only ever see local index 0, so `0 % anything == 0`
+                    // made nearly every bot attack instead of ~25%, and could put a bot in the
+                    // wrong faction from what the server assigned it.
+                    id: name_offset + bot,
                     entity_id: 0,
                     compression_threshold: 0,
                     state: ProtocolState::Login,
@@ -301,21 +355,46 @@ pub fn start_bots(count: u32, addrs: Address, name_offset: u32, cpus: u32) {
             if bot.teleported && !bot.attacked && bot.id % ATTACK_FRACTION == 0 {
                 bot.attacked = true;
 
-                // Even bot id -> Testville faction, attacks Secondtown; odd -> Secondtown,
-                // attacks Testville. Must match LoadTestBots.kt's parity rule server-side.
-                let targets = if bot.id % 2 == 0 {
-                    &SECONDTOWN_CHUNK_CENTERS
+                // Even bot id -> TownA (home: territory 440), attacks TownB's territory 275; odd
+                // -> TownB (home: territory 275), attacks TownA's territory 440. Must match
+                // LoadTestBots.kt's parity rule and territory IDs server-side.
+                let (targets, counter) = if bot.id % 2 == 0 {
+                    (&TOWN_A_ATTACK_TARGETS, &NEXT_TOWN_A_TARGET)
                 } else {
-                    &TESTVILLE_CHUNK_CENTERS
+                    (&TOWN_B_ATTACK_TARGETS, &NEXT_TOWN_B_TARGET)
                 };
-                let (tx, tz) = targets[(bot.id as usize / 2) % targets.len()];
+                let idx = counter.fetch_add(1, Ordering::Relaxed) % targets.len();
+                let (chunk_x, chunk_z, ground_y) = targets[idx];
+                let tx = chunk_x * 16 + 8;
+                let tz = chunk_z * 16 + 8;
+
+                // Move the bot near its actual attack target before placing -- previously
+                // attacking bots relied on the general +/-150 dispersal offset applied on first
+                // teleport (see process_teleport in states/play.rs), which has no idea where the
+                // attack targets are and could easily leave a bot placing a flag from far outside
+                // reach of the block it's supposedly placing.
+                //
+                // Deliberately offset 1 block off the target column (not centered on it): standing
+                // exactly at (tx+0.5, ground_y+1, tz+0.5) -- the same cell the new flag block would
+                // occupy -- made the placement fail completely and silently. Confirmed by
+                // decompiling this exact Minestom build's BlockPlacementListener: it calls
+                // CollisionUtils.canPlaceBlockAt before ever constructing PlayerBlockPlaceEvent, and
+                // when the colliding entity returned is the placing player itself, it just sends an
+                // AcknowledgeBlockChangePacket and returns -- no event is dispatched, so nodes'
+                // FlagWar listener never runs and no chat packet of any kind gets sent back. A
+                // 1-block horizontal offset keeps the player's hitbox clear of the target cell while
+                // staying well within placement range.
+                bot.x = tx as f64 - 1.0;
+                bot.y = (ground_y + 1) as f64;
+                bot.z = tz as f64 + 0.5;
+                bot.send_packet(play::write_current_pos(bot), &mut compression);
 
                 bot.send_packet(play::write_held_slot(0), &mut compression);
                 bot.send_packet(
                     play::write_block_place(
                         0,
                         tx,
-                        FLAG_GROUND_Y,
+                        ground_y,
                         tz,
                         1, // TOP face of the ground block
                         0.5,
@@ -326,11 +405,13 @@ pub fn start_bots(count: u32, addrs: Address, name_offset: u32, cpus: u32) {
                     &mut compression,
                 );
                 println!(
-                    "bot \"{}\" placing war flag at ({}, {}, {})",
+                    "bot \"{}\" placing war flag at ({}, {}, {}) [chunk ({}, {})]",
                     bot.name,
                     tx,
-                    FLAG_GROUND_Y + 1,
-                    tz
+                    ground_y + 1,
+                    tz,
+                    chunk_x,
+                    chunk_z
                 );
             }
 

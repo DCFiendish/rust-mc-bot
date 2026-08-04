@@ -53,6 +53,11 @@ pub fn lookup_packet(state: ProtocolState, packet: u8) -> Option<PacketHandler> 
             0x2C => return Some(play::process_keep_alive_packet), // KeepAlivePacket
             0x31 => return Some(play::process_join_game), // JoinGamePacket
             0x48 => return Some(play::process_teleport), // PlayerPositionAndLookPacket
+            0x79 => return Some(play::process_system_chat), // SystemChatPacket -- temporary
+            // war-flag-verification probe: confirmed via a live PacketVanilla.SERVER_PACKET_PARSER
+            // .play().packetInfo(SystemChatPacket.class) runtime lookup against this exact server
+            // build (not guessed/decompiled), id=121=0x79. Remove once flag-attack verification
+            // no longer needs to read the server's success/failure chat text.
             0x81 => return Some(config::process_transfer), // TransferPacket
             _ => {}
         },
