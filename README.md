@@ -8,6 +8,32 @@ original bot implementation goes to Eoghanmc22, who built it while working on th
 crash before the server did, so the tool is deliberately minimal: no unnecessary features, just
 raw connection throughput.
 
+## What the bots actually do
+
+Each bot is a minimal fake Minecraft client that connects to the target server through the real
+protocol handshake → login → configuration → play sequence — no online-mode auth, just enough of
+the protocol to look like a genuine connecting player from the server's point of view.
+
+- **Idle connection load, spread out realistically.** Every bot holds an open connection and
+  answers keep-alives, but spawns at a randomized offset rather than a single shared point —
+  entity-tracking cost scales with local density, not raw connection count, so spreading bots
+  across the map produces a load shape closer to a real player crowd than a pile at spawn.
+- **A subset of bots generate real interaction load, not just idle connections.** Controlled by
+  `ATTACK_FRACTION`, these bots periodically break blocks and place blocks at real border-chunk
+  coordinates between two adjacent, currently-unclaimed test territories — exercising the target
+  server's contested-territory (war-flag) attack path under concurrent load, not just raw tick
+  throughput. See `TOWN_A_ATTACK_TARGETS`/`TOWN_B_ATTACK_TARGETS` in `src/main.rs`.
+- **Runs standalone or from CI.** Either as a CLI executable pointed at `<ip:port> <count>
+  [threads]`, or via the `Load test` GitHub Actions workflow, which builds and runs the swarm
+  against a configurable target/count/duration on a free hosted runner — no dedicated always-on
+  machine needed.
+
+Everything below this point is the changelog of what had to be fixed in this fork to make the
+above actually work end-to-end against a real target server, rather than just connect and idle —
+kept in detail because most of these bugs were silent (no kick, no error, no visible difference
+between success and failure) and the fixes are the only record of how each one was actually
+diagnosed.
+
 ## Changes in this fork
 
 Extended and hardened against a custom Minestom-based server, with every fix confirmed against
